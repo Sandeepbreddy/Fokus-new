@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Blocked - Fokus</title>
+    <link rel="stylesheet" href="css/blocked.css">
+</head>
+
+<body>
+    <div class="blocked-container">
+        <div class="blocked-content">
+            <!-- Logo -->
+            <div class="logo-section">
+                <div class="logo">FOKUS</div>
+                <div class="blocked-icon">🚫</div>
+            </div>
+
+            <!-- Main Message -->
+            <div class="message-section">
+                <h1>Stay Focused</h1>
+                <p class="blocked-message">This site has been blocked to help you stay productive.</p>
+                <p class="blocked-url" id="blocked-url"></p>
+                <p class="blocked-reason" id="blocked-reason"></p>
+            </div>
+
+            <!-- Motivational Quote -->
+            <div class="quote-section">
+                <blockquote id="motivational-quote">
+                    <p class="quote-text">Loading inspiration...</p>
+                    <cite class="quote-author"></cite>
+                </blockquote>
+            </div>
+
+            <!-- Stats -->
+            <div class="stats-section">
+                <div class="stat-card">
+                    <div class="stat-value" id="time-saved">0</div>
+                    <div class="stat-label">Minutes Saved Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="sites-blocked">0</div>
+                    <div class="stat-label">Sites Blocked Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="focus-streak">0</div>
+                    <div class="stat-label">Day Focus Streak</div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-section">
+                <button class="btn btn-primary" id="go-back-btn">
+                    Get Back to Work
+                </button>
+                <button class="btn btn-secondary" id="take-break-btn">
+                    Take a 5-Minute Break
+                </button>
+            </div>
+
+            <!-- Emergency Access -->
+            <div class="emergency-section">
+                <details>
+                    <summary>Need emergency access?</summary>
+                    <div class="emergency-content">
+                        <p>If you absolutely need to access this site:</p>
+                        <ol>
+                            <li>Click the Fokus extension icon</li>
+                            <li>Go to Settings</li>
+                            <li>Temporarily disable blocking or remove this site</li>
+                        </ol>
+                        <button class="btn btn-warning" id="temp-unblock-btn">
+                            Request Temporary Access (5 min)
+                        </button>
+                        <p class="warning-text">
+                            Remember: Every unblock breaks your focus streak!
+                        </p>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Footer -->
+            <div class="footer-section">
+                <p>You've got this! 💪</p>
+                <div class="footer-links">
+                    <a href="#" id="settings-link">Settings</a>
+                    <span>•</span>
+                    <a href="#" id="stats-link">View Stats</a>
+                    <span>•</span>
+                    <a href="#" id="help-link">Help</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Background Animation -->
+        <div class="background-animation">
+            <div class="circle circle-1"></div>
+            <div class="circle circle-2"></div>
+            <div class="circle circle-3"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/blocked.js"></script>
+</body>
+
+</html>

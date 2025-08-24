@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fokus - Stay Focused</title>
+    <link rel="stylesheet" href="css/popup.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Loading State -->
+        <div id="loading-screen" class="screen active">
+            <div class="loading-container">
+                <div class="logo">FOKUS</div>
+                <div class="loading-spinner"></div>
+                <p class="loading-text">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Authentication Screen -->
+        <div id="auth-screen" class="screen">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <h1 class="logo">FOKUS</h1>
+                    <p class="tagline">Stay Focused, Be Productive</p>
+                </div>
+
+                <!-- Sign In Form -->
+                <form id="signin-form" class="auth-form active">
+                    <div class="form-group">
+                        <input type="email" id="signin-email" placeholder="Email address" required autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="signin-password" placeholder="Password" required
+                            autocomplete="current-password">
+                    </div>
+                    <div class="error-message" id="signin-error"></div>
+                    <button type="submit" class="btn btn-primary" id="signin-submit">
+                        Sign In
+                    </button>
+                    <div class="auth-footer">
+                        <span>Don't have an account?</span>
+                        <a href="#" id="show-signup">Sign Up</a>
+                    </div>
+                    <div class="auth-footer">
+                        <a href="#" id="forgot-password">Forgot Password?</a>
+                    </div>
+                </form>
+
+                <!-- Sign Up Form -->
+                <form id="signup-form" class="auth-form">
+                    <div class="form-group">
+                        <input type="email" id="signup-email" placeholder="Email address" required autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="signup-password" placeholder="Password (min 6 characters)" required
+                            autocomplete="new-password" minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <input type="password" id="signup-confirm-password" placeholder="Confirm password" required
+                            autocomplete="new-password">
+                    </div>
+                    <div class="error-message" id="signup-error"></div>
+                    <button type="submit" class="btn btn-primary" id="signup-submit">
+                        Create Account
+                    </button>
+                    <div class="auth-footer">
+                        <span>Already have an account?</span>
+                        <a href="#" id="show-signin">Sign In</a>
+                    </div>
+                    <div class="terms-notice">
+                        By signing up, you agree to our
+                        <a href="https://fokus.app/terms" target="_blank">Terms</a> and
+                        <a href="https://fokus.app/privacy" target="_blank">Privacy Policy</a>
+                    </div>
+                </form>
+
+                <!-- Email Confirmation -->
+                <div id="email-confirmation" class="auth-message">
+                    <div class="confirmation-icon">📧</div>
+                    <h2>Check Your Email</h2>
+                    <p>We've sent a confirmation email to:</p>
+                    <p class="email-display" id="confirmation-email"></p>
+                    <p class="confirmation-info">Please click the link in the email to activate your account.</p>
+                    <button class="btn btn-secondary" id="resend-email">
+                        Resend Email
+                    </button>
+                    <div class="checking-status">
+                        <div class="loading-spinner small"></div>
+                        <span>Checking confirmation status...</span>
+                    </div>
+                </div>
+
+                <!-- Password Reset -->
+                <div id="password-reset" class="auth-message">
+                    <h2>Reset Password</h2>
+                    <p>Enter your email to receive a password reset link</p>
+                    <form id="reset-form">
+                        <div class="form-group">
+                            <input type="email" id="reset-email" placeholder="Email address" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            Send Reset Link
+                        </button>
+                    </form>
+                    <div class="auth-footer">
+                        <a href="#" id="back-to-signin">Back to Sign In</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard -->
+        <div id="main-screen" class="screen">
+            <header class="main-header">
+                <h1 class="logo-small">FOKUS</h1>
+                <div class="header-actions">
+                    <button class="icon-btn" id="settings-btn" title="Settings">⚙️</button>
+                    <button class="icon-btn" id="signout-btn" title="Sign Out">🚪</button>
+                </div>
+            </header>
+
+            <div class="main-content">
+                <!-- Welcome Section -->
+                <div class="welcome-section">
+                    <h2 id="welcome-message">Welcome back!</h2>
+                    <p class="status-text" id="protection-status">Protection is active</p>
+                </div>
+
+                <!-- Quick Block Section -->
+                <div class="quick-block-section card">
+                    <h3>Quick Block</h3>
+                    <div class="quick-block-form">
+                        <input type="text" id="quick-block-input" placeholder="Enter domain or keyword to block">
+                        <button class="btn btn-primary" id="quick-block-btn">
+                            Block
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Section -->
+                <div class="stats-section card">
+                    <h3>Today's Statistics</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-blocks">0</div>
+                            <div class="stat-label">Sites Blocked</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-time">0h</div>
+                            <div class="stat-label">Time Saved</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-streak">0</div>
+                            <div class="stat-label">Day Streak</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" id="view-stats-btn">
+                        View Full Statistics
+                    </button>
+                    <button class="btn btn-secondary" id="manage-blocklist-btn">
+                        Manage Blocklist
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" class="screen">
+            <header class="settings-header">
+                <button class="back-btn" id="back-from-settings">←</button>
+                <h2>Settings</h2>
+            </header>
+
+            <div class="settings-content">
+                <!-- Account Status -->
+                <div class="card account-status">
+                    <h3>Account Status</h3>
+                    <div class="subscription-info">
+                        <div class="subscription-tier" id="subscription-tier">Free Trial</div>
+                        <div class="subscription-details" id="subscription-details">
+                            7 days remaining
+                        </div>
+                        <button class="btn btn-primary" id="upgrade-btn">
+                            Upgrade to Premium
+                        </button>
+                    </div>
+                    <div class="limits-info">
+                        <div class="limit-item">
+                            <span>Keywords:</span>
+                            <span id="keyword-limit">5/10</span>
+                        </div>
+                        <div class="limit-item">
+                            <span>Domains:</span>
+                            <span id="domain-limit">8/20</span>
+                        </div>
+                        <div class="limit-item">
+                            <span>Devices:</span>
+                            <span id="device-limit">1/1</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Keyword Blocking -->
+                <div class="card blocklist-section">
+                    <h3>Blocked Keywords</h3>
+                    <div class="blocklist-items" id="keyword-list">
+                        <!-- Keywords will be populated here -->
+                    </div>
+                    <div class="add-item-form">
+                        <input type="text" id="add-keyword-input" placeholder="Add keyword">
+                        <button class="btn btn-small" id="add-keyword-btn">Add</button>
+                    </div>
+                </div>
+
+                <!-- Domain Blocking -->
+                <div class="card blocklist-section">
+                    <h3>Blocked Domains</h3>
+                    <div class="blocklist-items" id="domain-list">
+                        <!-- Domains will be populated here -->
+                    </div>
+                    <div class="add-item-form">
+                        <input type="text" id="add-domain-input" placeholder="Add domain (e.g., facebook.com)">
+                        <button class="btn btn-small" id="add-domain-btn">Add</button>
+                    </div>
+                </div>
+
+                <!-- GitHub Lists -->
+                <div class="card blocklist-section">
+                    <h3>GitHub Blocklists</h3>
+                    <div class="blocklist-items" id="github-list">
+                        <!-- GitHub lists will be populated here -->
+                    </div>
+                    <div class="add-item-form">
+                        <input type="url" id="add-github-input" placeholder="GitHub blocklist URL">
+                        <button class="btn btn-small" id="add-github-btn">Import</button>
+                    </div>
+                </div>
+
+                <!-- General Settings -->
+                <div class="card settings-options">
+                    <h3>General Settings</h3>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="notifications-enabled">
+                            <span>Enable notifications</span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="sound-enabled">
+                            <span>Play sound when blocking</span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="strict-mode">
+                            <span>Strict mode (no temporary unblock)</span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="sync-enabled">
+                            <span>Sync across devices</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="settings-actions">
+                    <button class="btn btn-secondary" id="export-settings-btn">
+                        Export Settings
+                    </button>
+                    <button class="btn btn-secondary" id="import-settings-btn">
+                        Import Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Screen -->
+        <div id="stats-screen" class="screen">
+            <header class="stats-header">
+                <button class="back-btn" id="back-from-stats">←</button>
+                <h2>Statistics</h2>
+            </header>
+
+            <div class="stats-content">
+                <!-- Time Period Selector -->
+                <div class="time-period-selector">
+                    <button class="period-btn active" data-period="today">Today</button>
+                    <button class="period-btn" data-period="week">Week</button>
+                    <button class="period-btn" data-period="month">Month</button>
+                </div>
+
+                <!-- Summary Stats -->
+                <div class="card summary-stats">
+                    <div class="big-stat">
+                        <div class="big-stat-value" id="total-blocks">0</div>
+                        <div class="big-stat-label">Total Blocks</div>
+                    </div>
+                    <div class="big-stat">
+                        <div class="big-stat-value" id="time-saved">0h</div>
+                        <div class="big-stat-label">Time Saved</div>
+                    </div>
+                </div>
+
+                <!-- Block Types -->
+                <div class="card block-types">
+                    <h3>Blocks by Type</h3>
+                    <div class="type-stats">
+                        <div class="type-stat">
+                            <span>Domains:</span>
+                            <span id="domain-blocks">0</span>
+                        </div>
+                        <div class="type-stat">
+                            <span>Keywords:</span>
+                            <span id="keyword-blocks">0</span>
+                        </div>
+                        <div class="type-stat">
+                            <span>GitHub Lists:</span>
+                            <span id="github-blocks">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Blocked -->
+                <div class="card top-blocked">
+                    <h3>Most Blocked Sites</h3>
+                    <div class="blocked-list" id="top-blocked-list">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Productivity Score -->
+                <div class="card productivity-score">
+                    <h3>Productivity Score</h3>
+                    <div class="score-display">
+                        <div class="score-value" id="productivity-score">85</div>
+                        <div class="score-label">Great job!</div>
+                    </div>
+                    <div class="score-breakdown">
+                        <div class="score-item">
+                            <span>Consistency:</span>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 90%"></div>
+                            </div>
+                        </div>
+                        <div class="score-item">
+                            <span>Focus Time:</span>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 80%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="js/config.js"></script>
+    <script src="js/utils/logger.js"></script>
+    <script src="js/utils/storage.js"></script>
+    <script src="js/supabaseClient.js"></script>
+    <script src="js/popup.js"></script>
+</body>
+
+</html>
