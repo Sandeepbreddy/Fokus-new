@@ -1,449 +1,1154 @@
 /**
- * Supabase Client Module (Simplified for Chrome Extension)
- * Works without external Supabase library for basic functionality
+ * Supabase Client Module - Universal (Works in both Service Worker and Window contexts)
+ * Production-ready code that matches the exact database schema
  */
 
-class SupabaseClient
+(function (global)
 {
-    constructor()
-    {
-        this.client = null;
-        this.session = null;
-        this.logger = typeof Logger !== 'undefined' ? new Logger('SupabaseClient') : console;
-        this.storage = {
-            get: (key) => chrome.storage.local.get(key).then(r => r[key]),
-            set: (key, value) => chrome.storage.local.set({ [key]: value }),
-            remove: (key) => chrome.storage.local.remove(key),
-            clear: () => chrome.storage.local.clear()
-        };
-        this.authListeners = new Set();
-        this.initializeClient();
-    }
+    'use strict';
 
-    /**
-     * Initialize Supabase client
-     */
-    initializeClient()
+    class SupabaseClient
     {
-        try
+        constructor()
         {
-            // For now, we'll work without the Supabase library
-            // This is a simplified implementation for testing
-            this.logger.info('Initializing client (simplified mode)');
+            // Detect environment
+            this.isServiceWorker = typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope;
+            this.isWindow = typeof window !== 'undefined';
 
-            // Check for existing session
-            this.checkExistingSession();
-        } catch (error)
-        {
-            this.logger.error('Failed to initialize client:', error);
+            // Use appropriate global context
+            this.global = this.isServiceWorker ? self : (this.isWindow ? window : global);
+
+            // Configuration
+            this.supabaseUrl = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE.URL : null;
+            this.supabaseKey = typeof CONFIG !== 'undefined' ? CONFIG.SUPABASE.ANON_KEY : null;
+            this.session = null;
+            this.currentDevice = null;
+
+            // Logger
+            this.logger = this.setupLogger();
+
+            // Storage abstraction
+            this.storage = this.setupStorage();
+
+            // Auth listeners
+            this.authListeners = new Set();
+
+            // Initialize
+            this.initialize();
         }
-    }
 
-    /**
-     * Check for existing session in storage
-     */
-    async checkExistingSession()
-    {
-        try
+        /**
+         * Setup logger based on environment
+         */
+        setupLogger()
         {
-            const user = await this.storage.get(CONFIG.CACHE.STORAGE_KEYS.USER);
-            if (user)
+            if (typeof Logger !== 'undefined')
             {
-                this.session = { user };
-                this.handleAuthStateChange('SIGNED_IN', this.session);
+                return new Logger('SupabaseClient');
             }
-        } catch (error)
-        {
-            this.logger.error('Error checking session:', error);
+            return console;
         }
-    }
 
-    /**
-     * Handle auth state changes
-     */
-    handleAuthStateChange(event, session)
-    {
-        this.logger.debug('Auth state changed:', event);
-        this.session = session;
+        /**
+         * Setup storage based on environment
+         */
+        setupStorage()
+        {
+            // Chrome extension storage API (works in both contexts)
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local)
+            {
+                return {
+                    get: (key) => chrome.storage.local.get(key).then(r => r[key]),
+                    set: (key, value) => chrome.storage.local.set({ [key]: value }),
+                    remove: (key) => chrome.storage.local.remove(key),
+                    clear: () => chrome.storage.local.clear()
+                };
+            }
 
-        // Notify all listeners
-        this.authListeners.forEach(listener =>
+            // Fallback for testing
+            return {
+                get: async (key) => null,
+                set: async (key, value) => { },
+                remove: async (key) => { },
+                clear: async () => { }
+            };
+        }
+
+        /**
+         * Initialize client
+         */
+        async initialize()
         {
             try
             {
-                listener(event, session);
+                await this.checkExistingSession();
             } catch (error)
             {
-                this.logger.error('Auth listener error:', error);
+                this.logger.error('Initialization error:', error);
             }
-        });
-
-        // Handle specific events
-        switch (event)
-        {
-            case 'SIGNED_IN':
-                this.handleSignIn(session);
-                break;
-            case 'SIGNED_OUT':
-                this.handleSignOut();
-                break;
-            case 'TOKEN_REFRESHED':
-                this.logger.info('Token refreshed successfully');
-                break;
-            case 'USER_UPDATED':
-                this.handleUserUpdate(session);
-                break;
         }
-    }
 
-    /**
-     * Handle sign in event
-     */
-    async handleSignIn(session)
-    {
-        try
+        /**
+         * Make authenticated API request to Supabase
+         */
+        async makeRequest(endpoint, options = {})
         {
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, session.user);
-            await this.syncUserData();
-            this.logger.info('User signed in:', session.user.email);
-        } catch (error)
-        {
-            this.logger.error('Sign in handler error:', error);
-        }
-    }
-
-    /**
-     * Handle sign out event
-     */
-    async handleSignOut()
-    {
-        try
-        {
-            await this.storage.clear();
-            this.logger.info('User signed out');
-        } catch (error)
-        {
-            this.logger.error('Sign out handler error:', error);
-        }
-    }
-
-    /**
-     * Handle user update event
-     */
-    async handleUserUpdate(session)
-    {
-        try
-        {
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, session.user);
-            this.logger.info('User data updated');
-        } catch (error)
-        {
-            this.logger.error('User update handler error:', error);
-        }
-    }
-
-    /**
-     * Register auth state listener
-     */
-    onAuthStateChange(listener)
-    {
-        this.authListeners.add(listener);
-        return () => this.authListeners.delete(listener);
-    }
-
-    /**
-     * Sign up new user (simplified for testing)
-     */
-    async signUp(email, password)
-    {
-        try
-        {
-            // For testing, create a mock user
-            const mockUser = {
-                id: 'user-' + Date.now(),
-                email: email,
-                user_metadata: {
-                    subscription_tier: 'free'
-                },
-                created_at: new Date().toISOString()
-            };
-
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, mockUser);
-            this.session = { user: mockUser };
-
-            this.logger.info('User signed up successfully:', email);
-            return { success: true, data: { user: mockUser } };
-        } catch (error)
-        {
-            this.logger.error('Sign up error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
-
-    /**
-     * Sign in existing user (simplified for testing)
-     */
-    async signIn(email, password)
-    {
-        try
-        {
-            // For testing, create a mock user session
-            const mockUser = {
-                id: 'user-' + Date.now(),
-                email: email,
-                user_metadata: {
-                    subscription_tier: 'free'
-                },
-                last_sign_in_at: new Date().toISOString()
-            };
-
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, mockUser);
-            this.session = { user: mockUser };
-
-            this.handleAuthStateChange('SIGNED_IN', this.session);
-
-            this.logger.info('User signed in successfully:', email);
-            return { success: true, data: { user: mockUser } };
-        } catch (error)
-        {
-            this.logger.error('Sign in error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
-
-    /**
-     * Sign out current user
-     */
-    async signOut()
-    {
-        try
-        {
-            await this.storage.clear();
-            this.session = null;
-            this.handleAuthStateChange('SIGNED_OUT', null);
-
-            this.logger.info('User signed out successfully');
-            return { success: true };
-        } catch (error)
-        {
-            this.logger.error('Sign out error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
-
-    /**
-     * Reset password
-     */
-    async resetPassword(email)
-    {
-        try
-        {
-            // Mock implementation for testing
-            this.logger.info('Password reset email sent:', email);
-            return { success: true, message: 'Password reset email sent (mock)' };
-        } catch (error)
-        {
-            this.logger.error('Password reset error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
-
-    /**
-     * Get current session
-     */
-    async getSession()
-    {
-        try
-        {
-            if (this.session)
+            if (!this.supabaseUrl || !this.supabaseKey)
             {
-                return this.session;
+                throw new Error('Supabase configuration missing');
             }
 
-            const user = await this.storage.get(CONFIG.CACHE.STORAGE_KEYS.USER);
-            if (user)
-            {
-                this.session = { user };
-                return this.session;
-            }
+            const url = `${this.supabaseUrl}${endpoint}`;
+            const headers = {
+                'apikey': this.supabaseKey,
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
 
-            return null;
-        } catch (error)
-        {
-            this.logger.error('Get session error:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Get current user
-     */
-    async getCurrentUser()
-    {
-        try
-        {
+            // Add authorization header if we have a session
             const session = await this.getSession();
-            return session ? session.user : null;
-        } catch (error)
-        {
-            this.logger.error('Get user error:', error);
-            return null;
-        }
-    }
-
-    /**
-     * Get user blocklist (mock implementation)
-     */
-    async getUserBlocklist()
-    {
-        try
-        {
-            const blocklist = await this.storage.get(CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST);
-
-            if (blocklist)
+            if (session?.access_token)
             {
-                return { success: true, data: blocklist };
+                headers['Authorization'] = `Bearer ${session.access_token}`;
             }
 
-            // Return default blocklist
-            const defaultBlocklist = {
-                keywords: [],
-                domains: [],
-                github_urls: [],
-                is_active: true,
-                created_at: new Date().toISOString()
-            };
+            try
+            {
+                const response = await fetch(url, {
+                    ...options,
+                    headers
+                });
 
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST, defaultBlocklist);
-            return { success: true, data: defaultBlocklist };
-        } catch (error)
-        {
-            this.logger.error('Get blocklist error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
+                const data = await response.json();
 
-    /**
-     * Update user blocklist
-     */
-    async updateUserBlocklist(updates)
-    {
-        try
-        {
-            const current = await this.storage.get(CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST) || {};
-            const updated = {
-                ...current,
-                ...updates,
-                updated_at: new Date().toISOString()
-            };
-
-            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST, updated);
-
-            this.logger.info('Blocklist updated successfully');
-            return { success: true, data: updated };
-        } catch (error)
-        {
-            this.logger.error('Update blocklist error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
-    }
-
-    /**
-     * Get user statistics (mock implementation)
-     */
-    async getUserStats(dateRange = 7)
-    {
-        try
-        {
-            // Return mock stats for testing
-            const mockStats = {
-                totalBlocks: Math.floor(Math.random() * 100),
-                timeSaved: Math.floor(Math.random() * 500),
-                streak: Math.floor(Math.random() * 30),
-                blocksByType: {
-                    domain: Math.floor(Math.random() * 50),
-                    keyword: Math.floor(Math.random() * 30),
-                    github_list: Math.floor(Math.random() * 20)
+                if (!response.ok)
+                {
+                    throw new Error(data.error_description || data.message || data.msg || 'Request failed');
                 }
+
+                return data;
+            } catch (error)
+            {
+                this.logger.error('API request failed:', error);
+                throw error;
+            }
+        }
+
+        /**
+         * Check for existing session in storage
+         */
+        async checkExistingSession()
+        {
+            try
+            {
+                const storedSession = await this.storage.get(this.getStorageKey('AUTH'));
+                if (storedSession && storedSession.access_token)
+                {
+                    // Verify the session is still valid
+                    const user = await this.getUser(storedSession.access_token);
+                    if (user)
+                    {
+                        this.session = storedSession;
+                        this.handleAuthStateChange('SIGNED_IN', this.session);
+                        // Load current device
+                        await this.loadCurrentDevice();
+                    } else
+                    {
+                        // Session expired, clear it
+                        await this.storage.remove(this.getStorageKey('AUTH'));
+                    }
+                }
+            } catch (error)
+            {
+                this.logger.error('Error checking session:', error);
+            }
+        }
+
+        /**
+         * Get storage key
+         */
+        getStorageKey(key)
+        {
+            if (typeof CONFIG !== 'undefined')
+            {
+                switch (key)
+                {
+                    case 'AUTH':
+                        return CONFIG.SUPABASE.AUTH.STORAGE_KEY;
+                    case 'USER':
+                        return CONFIG.CACHE.STORAGE_KEYS.USER;
+                    case 'BLOCKLIST':
+                        return CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST;
+                    case 'DEVICE':
+                        return CONFIG.CACHE.STORAGE_KEYS.DEVICE;
+                    case 'SETTINGS':
+                        return CONFIG.CACHE.STORAGE_KEYS.SETTINGS;
+                    default:
+                        return key;
+                }
+            }
+            return `fokus_${key.toLowerCase()}`;
+        }
+
+        /**
+         * Get user with access token
+         */
+        async getUser(accessToken)
+        {
+            try
+            {
+                const data = await this.makeRequest('/auth/v1/user', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                return data;
+            } catch (error)
+            {
+                return null;
+            }
+        }
+
+        /**
+         * Sign up new user
+         */
+        async signUp(email, password)
+        {
+            try
+            {
+                this.logger.info('Attempting to sign up user:', email);
+
+                // Step 1: Create auth user
+                const authResponse = await this.makeRequest('/auth/v1/signup', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email,
+                        password
+                    })
+                });
+
+                this.logger.info('Auth user created');
+
+                // Store session if we got one (auto-confirmed)
+                if (authResponse.access_token)
+                {
+                    this.session = authResponse;
+                    await this.storage.set(this.getStorageKey('AUTH'), authResponse);
+                    await this.storage.set(this.getStorageKey('USER'), authResponse.user);
+
+                    // Step 2: Create user record in users table
+                    await this.createUserRecord(authResponse.user);
+
+                    // Step 3: Create default blocklist
+                    await this.createDefaultBlocklist(authResponse.user.id);
+
+                    // Step 4: Register current device
+                    await this.registerCurrentDevice(authResponse.user.id);
+
+                    this.handleAuthStateChange('SIGNED_IN', this.session);
+                }
+
+                return {
+                    success: true,
+                    data: authResponse,
+                    requiresEmailConfirmation: !authResponse.access_token
+                };
+            } catch (error)
+            {
+                this.logger.error('Sign up error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Create user record in users table
+         */
+        async createUserRecord(authUser)
+        {
+            try
+            {
+                const userData = {
+                    id: authUser.id,
+                    email: authUser.email,
+                    subscription_tier: 'free',
+                    device_limit: 1
+                };
+
+                await this.makeRequest('/rest/v1/users', {
+                    method: 'POST',
+                    body: JSON.stringify(userData),
+                    headers: {
+                        'Prefer': 'return=representation'
+                    }
+                });
+
+                this.logger.info('User record created in users table');
+            } catch (error)
+            {
+                // Check if user already exists
+                if (error.message.includes('duplicate'))
+                {
+                    this.logger.info('User record already exists');
+                } else
+                {
+                    this.logger.error('Failed to create user record:', error);
+                }
+            }
+        }
+
+        /**
+         * Create default blocklist for new user
+         */
+        async createDefaultBlocklist(userId)
+        {
+            try
+            {
+                const blocklist = {
+                    user_id: userId,
+                    keywords: [],
+                    domains: [],
+                    github_urls: [],
+                    is_active: true,
+                    priority: 0
+                };
+
+                await this.makeRequest('/rest/v1/user_blocklists', {
+                    method: 'POST',
+                    body: JSON.stringify(blocklist),
+                    headers: {
+                        'Prefer': 'return=representation'
+                    }
+                });
+
+                this.logger.info('Default blocklist created');
+            } catch (error)
+            {
+                if (error.message.includes('duplicate'))
+                {
+                    this.logger.info('Blocklist already exists');
+                } else
+                {
+                    this.logger.error('Failed to create blocklist:', error);
+                }
+            }
+        }
+
+        /**
+         * Register current device
+         */
+        async registerCurrentDevice(userId)
+        {
+            try
+            {
+                // Generate device UUID if not exists
+                let deviceUuid = await this.storage.get('device_uuid');
+                if (!deviceUuid)
+                {
+                    deviceUuid = this.generateUUID();
+                    await this.storage.set('device_uuid', deviceUuid);
+                }
+
+                const deviceInfo = this.getDeviceInfo();
+                const deviceData = {
+                    user_id: userId,
+                    device_uuid: deviceUuid,
+                    browser_name: deviceInfo.browserName,
+                    browser_version: deviceInfo.browserVersion,
+                    operating_system: deviceInfo.os,
+                    device_name: `${deviceInfo.browserName} on ${deviceInfo.os}`,
+                    is_active: true
+                };
+
+                const response = await this.makeRequest('/rest/v1/devices', {
+                    method: 'POST',
+                    body: JSON.stringify(deviceData),
+                    headers: {
+                        'Prefer': 'return=representation'
+                    }
+                });
+
+                if (response && response.length > 0)
+                {
+                    this.currentDevice = response[0];
+                    await this.storage.set('current_device', this.currentDevice);
+                    this.logger.info('Device registered successfully');
+                }
+            } catch (error)
+            {
+                if (error.message.includes('duplicate'))
+                {
+                    // Device already exists, try to fetch it
+                    await this.loadCurrentDevice();
+                } else
+                {
+                    this.logger.error('Failed to register device:', error);
+                }
+            }
+        }
+
+        /**
+         * Load current device
+         */
+        async loadCurrentDevice()
+        {
+            try
+            {
+                const deviceUuid = await this.storage.get('device_uuid');
+                if (!deviceUuid) return;
+
+                const user = await this.getCurrentUser();
+                if (!user) return;
+
+                const response = await this.makeRequest(
+                    `/rest/v1/devices?user_id=eq.${user.id}&device_uuid=eq.${deviceUuid}`,
+                    { method: 'GET' }
+                );
+
+                if (response && response.length > 0)
+                {
+                    this.currentDevice = response[0];
+                    await this.storage.set('current_device', this.currentDevice);
+                }
+            } catch (error)
+            {
+                this.logger.error('Failed to load device:', error);
+            }
+        }
+
+        /**
+         * Get device info
+         */
+        getDeviceInfo()
+        {
+            const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown';
+
+            // Detect browser
+            let browserName = 'Unknown';
+            let browserVersion = 'Unknown';
+
+            if (userAgent.includes('Edg'))
+            {
+                browserName = 'Edge';
+                const match = userAgent.match(/Edg\/(\d+\.\d+)/);
+                if (match) browserVersion = match[1];
+            } else if (userAgent.includes('Chrome'))
+            {
+                browserName = 'Chrome';
+                const match = userAgent.match(/Chrome\/(\d+\.\d+)/);
+                if (match) browserVersion = match[1];
+            } else if (userAgent.includes('Firefox'))
+            {
+                browserName = 'Firefox';
+                const match = userAgent.match(/Firefox\/(\d+\.\d+)/);
+                if (match) browserVersion = match[1];
+            } else if (userAgent.includes('Safari'))
+            {
+                browserName = 'Safari';
+                const match = userAgent.match(/Version\/(\d+\.\d+)/);
+                if (match) browserVersion = match[1];
+            }
+
+            // Detect OS
+            let os = 'Unknown';
+            if (userAgent.includes('Windows')) os = 'Windows';
+            else if (userAgent.includes('Mac')) os = 'macOS';
+            else if (userAgent.includes('Linux')) os = 'Linux';
+            else if (userAgent.includes('Android')) os = 'Android';
+            else if (userAgent.includes('iOS')) os = 'iOS';
+
+            return {
+                browserName,
+                browserVersion,
+                os
+            };
+        }
+
+        /**
+         * Generate UUID v4
+         */
+        generateUUID()
+        {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c)
+            {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        /**
+         * Sign in existing user
+         */
+        async signIn(email, password)
+        {
+            try
+            {
+                this.logger.info('Attempting to sign in user:', email);
+
+                const response = await this.makeRequest('/auth/v1/token?grant_type=password', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email,
+                        password
+                    })
+                });
+
+                this.logger.info('Sign in successful');
+
+                // Store session
+                this.session = response;
+                await this.storage.set(this.getStorageKey('AUTH'), response);
+                await this.storage.set(this.getStorageKey('USER'), response.user);
+
+                // Register/update device
+                await this.registerCurrentDevice(response.user.id);
+
+                this.handleAuthStateChange('SIGNED_IN', this.session);
+
+                return {
+                    success: true,
+                    data: response
+                };
+            } catch (error)
+            {
+                this.logger.error('Sign in error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Sign out current user
+         */
+        async signOut()
+        {
+            try
+            {
+                // Call Supabase signout endpoint if we have a session
+                if (this.session?.access_token)
+                {
+                    await this.makeRequest('/auth/v1/logout', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${this.session.access_token}`
+                        }
+                    }).catch(err =>
+                    {
+                        this.logger.debug('Signout API call failed:', err);
+                    });
+                }
+
+                // Clear local storage
+                await this.storage.clear();
+
+                this.session = null;
+                this.currentDevice = null;
+                this.handleAuthStateChange('SIGNED_OUT', null);
+
+                this.logger.info('User signed out successfully');
+                return { success: true };
+            } catch (error)
+            {
+                this.logger.error('Sign out error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Reset password
+         */
+        async resetPassword(email)
+        {
+            try
+            {
+                await this.makeRequest('/auth/v1/recover', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        email
+                    })
+                });
+
+                this.logger.info('Password reset email sent:', email);
+                return {
+                    success: true,
+                    message: 'Password reset email sent'
+                };
+            } catch (error)
+            {
+                this.logger.error('Password reset error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Get current session
+         */
+        async getSession()
+        {
+            try
+            {
+                if (this.session)
+                {
+                    // Check if session is expired
+                    if (this.session.expires_at)
+                    {
+                        const expiresAt = new Date(this.session.expires_at * 1000);
+                        if (expiresAt < new Date())
+                        {
+                            this.session = null;
+                            await this.storage.remove(this.getStorageKey('AUTH'));
+                            return null;
+                        }
+                    }
+                    return this.session;
+                }
+
+                const storedSession = await this.storage.get(this.getStorageKey('AUTH'));
+                if (storedSession)
+                {
+                    this.session = storedSession;
+                    return this.session;
+                }
+
+                return null;
+            } catch (error)
+            {
+                this.logger.error('Get session error:', error);
+                return null;
+            }
+        }
+
+        /**
+         * Get current user
+         */
+        async getCurrentUser()
+        {
+            try
+            {
+                const session = await this.getSession();
+                return session ? session.user : null;
+            } catch (error)
+            {
+                this.logger.error('Get user error:', error);
+                return null;
+            }
+        }
+
+        /**
+         * Get user blocklist from database
+         */
+        async getUserBlocklist()
+        {
+            try
+            {
+                const user = await this.getCurrentUser();
+                if (!user)
+                {
+                    return { success: false, error: 'Not authenticated' };
+                }
+
+                const data = await this.makeRequest(
+                    `/rest/v1/user_blocklists?user_id=eq.${user.id}&select=*`,
+                    { method: 'GET' }
+                );
+
+                let blocklist = data && data.length > 0 ? data[0] : null;
+
+                if (!blocklist)
+                {
+                    // Create default blocklist if none exists
+                    await this.createDefaultBlocklist(user.id);
+                    blocklist = {
+                        keywords: [],
+                        domains: [],
+                        github_urls: [],
+                        is_active: true
+                    };
+                }
+
+                // Cache locally
+                await this.storage.set(this.getStorageKey('BLOCKLIST'), blocklist);
+
+                return { success: true, data: blocklist };
+            } catch (error)
+            {
+                this.logger.error('Get blocklist error:', error);
+
+                // Fallback to cached version
+                const cached = await this.storage.get(this.getStorageKey('BLOCKLIST'));
+                if (cached)
+                {
+                    return { success: true, data: cached };
+                }
+
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Update user blocklist in database
+         */
+        async updateUserBlocklist(updates)
+        {
+            try
+            {
+                const user = await this.getCurrentUser();
+                if (!user)
+                {
+                    return { success: false, error: 'Not authenticated' };
+                }
+
+                // Ensure arrays are properly formatted
+                const formattedUpdates = {
+                    keywords: updates.keywords || [],
+                    domains: updates.domains || [],
+                    github_urls: updates.github_urls || [],
+                    updated_at: new Date().toISOString()
+                };
+
+                // Update existing blocklist (we know it exists due to unique constraint)
+                const response = await this.makeRequest(
+                    `/rest/v1/user_blocklists?user_id=eq.${user.id}`,
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify(formattedUpdates),
+                        headers: {
+                            'Prefer': 'return=representation'
+                        }
+                    }
+                );
+
+                if (response && response.length > 0)
+                {
+                    // Cache locally
+                    await this.storage.set(this.getStorageKey('BLOCKLIST'), response[0]);
+                    this.logger.info('Blocklist updated successfully');
+                    return { success: true, data: response[0] };
+                }
+
+                return { success: false, error: 'Failed to update blocklist' };
+            } catch (error)
+            {
+                this.logger.error('Update blocklist error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Log block event to database
+         */
+        async logBlockEvent(eventData)
+        {
+            try
+            {
+                const user = await this.getCurrentUser();
+                const device = await this.storage.get('current_device');
+
+                if (!user || !device)
+                {
+                    return { success: false, error: 'Not authenticated or device not registered' };
+                }
+
+                // Hash the URL for privacy
+                const urlHash = await this.hashString(eventData.url);
+
+                await this.makeRequest('/rest/v1/block_events', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        user_id: user.id,
+                        device_id: device.id,
+                        blocked_url_hash: urlHash,
+                        block_type: eventData.blockType,
+                        block_source: eventData.blockSource
+                    }),
+                    headers: {
+                        'Prefer': 'return=minimal'
+                    }
+                });
+
+                // Update daily stats
+                await this.updateDailyStats(eventData.blockType);
+
+                return { success: true };
+            } catch (error)
+            {
+                this.logger.error('Log block event error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        /**
+         * Update daily statistics
+         */
+        async updateDailyStats(blockType)
+        {
+            try
+            {
+                const user = await this.getCurrentUser();
+                if (!user) return;
+
+                const today = new Date().toISOString().split('T')[0];
+
+                // First, try to get existing stats for today
+                const existingStats = await this.makeRequest(
+                    `/rest/v1/daily_stats?user_id=eq.${user.id}&date=eq.${today}`,
+                    { method: 'GET' }
+                );
+
+                if (existingStats && existingStats.length > 0)
+                {
+                    // Update existing stats
+                    const current = existingStats[0];
+                    const blocksByType = current.blocks_by_type || {};
+                    blocksByType[blockType] = (blocksByType[blockType] || 0) + 1;
+
+                    await this.makeRequest(
+                        `/rest/v1/daily_stats?id=eq.${current.id}`,
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                total_blocks: current.total_blocks + 1,
+                                blocks_by_type: blocksByType
+                            })
+                        }
+                    );
+                } else
+                {
+                    // Create new stats entry
+                    const blocksByType = { keyword: 0, domain: 0, github_list: 0 };
+                    blocksByType[blockType] = 1;
+
+                    await this.makeRequest('/rest/v1/daily_stats', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            user_id: user.id,
+                            date: today,
+                            total_blocks: 1,
+                            blocks_by_type: blocksByType,
+                            top_blocked_domains: [],
+                            active_devices_count: 1
+                        })
+                    });
+                }
+            } catch (error)
+            {
+                this.logger.error('Failed to update daily stats:', error);
+            }
+        }
+
+        /**
+         * Get user statistics
+         */
+        async getUserStats(dateRange = 7)
+        {
+            try
+            {
+                const user = await this.getCurrentUser();
+                if (!user)
+                {
+                    return { success: false, error: 'Not authenticated' };
+                }
+
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - dateRange);
+
+                const data = await this.makeRequest(
+                    `/rest/v1/daily_stats?user_id=eq.${user.id}&date=gte.${startDate.toISOString().split('T')[0]}&select=*&order=date.desc`,
+                    { method: 'GET' }
+                );
+
+                // Calculate totals
+                const stats = {
+                    totalBlocks: 0,
+                    timeSaved: 0,
+                    blocksByType: {
+                        domain: 0,
+                        keyword: 0,
+                        github_list: 0
+                    },
+                    streak: 0
+                };
+
+                if (data && data.length > 0)
+                {
+                    data.forEach(day =>
+                    {
+                        stats.totalBlocks += day.total_blocks || 0;
+                        if (day.blocks_by_type)
+                        {
+                            Object.entries(day.blocks_by_type).forEach(([type, count]) =>
+                            {
+                                if (stats.blocksByType[type] !== undefined)
+                                {
+                                    stats.blocksByType[type] += count;
+                                }
+                            });
+                        }
+                    });
+
+                    // Calculate streak (consecutive days with blocks)
+                    stats.streak = this.calculateStreak(data);
+                }
+
+                stats.timeSaved = stats.totalBlocks * 5; // 5 minutes per block estimate
+
+                return { success: true, data: stats };
+            } catch (error)
+            {
+                this.logger.error('Get stats error:', error);
+
+                return {
+                    success: true,
+                    data: {
+                        totalBlocks: 0,
+                        timeSaved: 0,
+                        streak: 0,
+                        blocksByType: {
+                            domain: 0,
+                            keyword: 0,
+                            github_list: 0
+                        }
+                    }
+                };
+            }
+        }
+
+        /**
+         * Calculate streak from daily stats
+         */
+        calculateStreak(dailyStats)
+        {
+            if (!dailyStats || dailyStats.length === 0) return 0;
+
+            let streak = 0;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            for (let i = 0; i < dailyStats.length; i++)
+            {
+                const statDate = new Date(dailyStats[i].date);
+                statDate.setHours(0, 0, 0, 0);
+
+                const expectedDate = new Date(today);
+                expectedDate.setDate(expectedDate.getDate() - i);
+
+                if (statDate.getTime() === expectedDate.getTime() && dailyStats[i].total_blocks > 0)
+                {
+                    streak++;
+                } else if (i === 0 && statDate.getTime() === expectedDate.getTime() - 86400000)
+                {
+                    // Allow for yesterday if today has no blocks yet
+                    streak++;
+                } else
+                {
+                    break;
+                }
+            }
+
+            return streak;
+        }
+
+        /**
+         * Hash string for privacy
+         */
+        async hashString(str)
+        {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        /**
+         * Handle auth state changes
+         */
+        handleAuthStateChange(event, session)
+        {
+            this.logger.debug('Auth state changed:', event);
+            this.session = session;
+
+            // Notify all listeners
+            this.authListeners.forEach(listener =>
+            {
+                try
+                {
+                    listener(event, session);
+                } catch (error)
+                {
+                    this.logger.error('Auth listener error:', error);
+                }
+            });
+
+            // Handle specific events
+            switch (event)
+            {
+                case 'SIGNED_IN':
+                    this.handleSignIn(session);
+                    break;
+                case 'SIGNED_OUT':
+                    this.handleSignOut();
+                    break;
+            }
+        }
+
+        /**
+         * Handle sign in event
+         */
+        async handleSignIn(session)
+        {
+            try
+            {
+                if (session?.user)
+                {
+                    await this.storage.set(this.getStorageKey('USER'), session.user);
+                    await this.syncUserData();
+                    this.logger.info('User signed in:', session.user.email);
+                }
+            } catch (error)
+            {
+                this.logger.error('Sign in handler error:', error);
+            }
+        }
+
+        /**
+         * Handle sign out event
+         */
+        async handleSignOut()
+        {
+            try
+            {
+                this.logger.info('User signed out');
+            } catch (error)
+            {
+                this.logger.error('Sign out handler error:', error);
+            }
+        }
+
+        /**
+         * Register auth state listener
+         */
+        onAuthStateChange(listener)
+        {
+            this.authListeners.add(listener);
+            return () => this.authListeners.delete(listener);
+        }
+
+        /**
+         * Sync user data
+         */
+        async syncUserData()
+        {
+            try
+            {
+                const [blocklist, stats] = await Promise.all([
+                    this.getUserBlocklist(),
+                    this.getUserStats()
+                ]);
+
+                this.logger.info('User data synced successfully');
+                return { success: true, blocklist, stats };
+            } catch (error)
+            {
+                this.logger.error('Sync error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Format error for user display
+         */
+        formatError(error)
+        {
+            if (typeof error === 'string') return error;
+
+            const message = error.message || error.error_description || 'An unexpected error occurred';
+
+            // Handle common Supabase errors
+            const errorMessages = {
+                'Invalid login credentials': 'Invalid email or password',
+                'Email not confirmed': 'Please check your email to confirm your account',
+                'User already registered': 'An account with this email already exists',
+                'Password should be at least 6 characters': 'Password must be at least 6 characters',
+                'Invalid email': 'Please enter a valid email address',
+                'Email rate limit exceeded': 'Too many attempts. Please try again later.',
+                'Invalid Refresh Token': 'Your session has expired. Please sign in again.'
             };
 
-            return { success: true, data: mockStats };
-        } catch (error)
+            for (const [key, value] of Object.entries(errorMessages))
+            {
+                if (message.includes(key))
+                {
+                    return value;
+                }
+            }
+
+            return message;
+        }
+
+        /**
+         * Register device (for external calls)
+         */
+        async registerDevice(deviceInfo)
         {
-            this.logger.error('Get stats error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
+            try
+            {
+                const user = await this.getCurrentUser();
+                if (!user)
+                {
+                    return { success: false, error: 'Not authenticated' };
+                }
+
+                await this.registerCurrentDevice(user.id);
+                return { success: true, data: this.currentDevice };
+            } catch (error)
+            {
+                this.logger.error('Register device error:', error);
+                return { success: false, error: error.message };
+            }
         }
     }
 
-    /**
-     * Sync user data
-     */
-    async syncUserData()
+    // Export for different environments
+    if (typeof module !== 'undefined' && module.exports)
     {
-        try
+        // Node.js
+        module.exports = SupabaseClient;
+    } else if (typeof define === 'function' && define.amd)
+    {
+        // AMD
+        define([], function ()
         {
-            const [blocklist, stats] = await Promise.all([
-                this.getUserBlocklist(),
-                this.getUserStats()
-            ]);
+            return SupabaseClient;
+        });
+    } else
+    {
+        // Browser/Service Worker
+        global.SupabaseClient = SupabaseClient;
 
-            this.logger.info('User data synced successfully');
-            return { success: true, blocklist, stats };
-        } catch (error)
-        {
-            this.logger.error('Sync error:', error);
-            return {
-                success: false,
-                error: this.formatError(error)
-            };
-        }
+        // Create singleton instance
+        global.supabaseClient = new SupabaseClient();
     }
 
-    /**
-     * Format error for user display
-     */
-    formatError(error)
-    {
-        if (typeof error === 'string') return error;
-
-        const message = error.message || error.error_description || 'An unexpected error occurred';
-
-        // Handle common errors
-        const errorMessages = {
-            'Invalid login credentials': 'Invalid email or password',
-            'Email not confirmed': 'Please check your email to confirm your account',
-            'User already registered': 'An account with this email already exists',
-            'Password should be at least 6 characters': 'Password must be at least 6 characters',
-            'Invalid email': 'Please enter a valid email address'
-        };
-
-        return errorMessages[message] || message;
-    }
-}
-
-// Export singleton instance
-if (typeof window !== 'undefined')
-{
-    window.supabaseClient = new SupabaseClient();
-}
+})(typeof self !== 'undefined' ? self : typeof window !== 'undefined' ? window : this);
