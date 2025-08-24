@@ -4,18 +4,8 @@
     "version": "1.0.0",
     "description": "Take control of your digital focus. Block distractions, boost productivity.",
     "author": "Fokus Team",
-    "icons": {
-        "16": "assets/icons/icon16.png",
-        "48": "assets/icons/icon48.png",
-        "128": "assets/icons/icon128.png"
-    },
     "action": {
         "default_popup": "popup.html",
-        "default_icon": {
-            "16": "assets/icons/icon16.png",
-            "48": "assets/icons/icon48.png",
-            "128": "assets/icons/icon128.png"
-        },
         "default_title": "Fokus: Keyword & Domain Blocker"
     },
     "background": {
@@ -24,15 +14,13 @@
     "content_scripts": [
         {
             "matches": [
-                "<all_urls>"
+                "http://*/*",
+                "https://*/*"
             ],
             "js": [
                 "js/content.js"
             ],
-            "css": [
-                "css/blocked.css"
-            ],
-            "run_at": "document_start",
+            "run_at": "document_idle",
             "all_frames": true
         }
     ],
@@ -40,10 +28,10 @@
         "storage",
         "tabs",
         "webNavigation",
-        "webRequest",
         "declarativeNetRequest",
-        "declarativeNetRequestWithHostAccess",
-        "alarms"
+        "alarms",
+        "notifications",
+        "contextMenus"
     ],
     "host_permissions": [
         "<all_urls>"

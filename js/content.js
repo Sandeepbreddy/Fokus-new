@@ -11,7 +11,16 @@ class FokusContentScript
         this.isActive = false;
         this.observer = null;
         this.checkInterval = null;
-        this.init();
+        this.observerTimeout = null;
+
+        // Wait for DOM to be ready before initializing
+        if (document.readyState === 'loading')
+        {
+            document.addEventListener('DOMContentLoaded', () => this.init());
+        } else
+        {
+            this.init();
+        }
     }
 
     /**
@@ -21,6 +30,14 @@ class FokusContentScript
     {
         try
         {
+            // Skip initialization on chrome:// URLs
+            if (window.location.protocol === 'chrome:' ||
+                window.location.protocol === 'chrome-extension:')
+            {
+                console.log('[Fokus] Skipping initialization on chrome:// URL');
+                return;
+            }
+
             // Load blocklist from storage
             await this.loadBlocklist();
 
@@ -202,26 +219,32 @@ class FokusContentScript
             container.style.pointerEvents = 'none';
             container.style.position = 'relative';
 
+            // Check if overlay already exists
+            if (container.querySelector('.fokus-blocked-overlay'))
+            {
+                return;
+            }
+
             // Add blocked overlay
             const overlay = document.createElement('div');
             overlay.className = 'fokus-blocked-overlay';
             overlay.innerHTML = `
-        <div style="
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: #EF4444;
-          color: white;
-          padding: 5px 10px;
-          border-radius: 4px;
-          font-size: 12px;
-          font-weight: bold;
-          z-index: 1000;
-        ">
-          BLOCKED BY FOKUS
-        </div>
-      `;
+                <div style="
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #EF4444;
+                    color: white;
+                    padding: 5px 10px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    z-index: 1000;
+                ">
+                    BLOCKED BY FOKUS
+                </div>
+            `;
             container.appendChild(overlay);
         }
     }
@@ -299,6 +322,14 @@ class FokusContentScript
     {
         // Only observe on search engines
         if (!this.isSearchEngine(window.location.hostname)) return;
+
+        // Make sure document.body exists
+        if (!document.body)
+        {
+            console.log('[Fokus] Waiting for document.body to exist...');
+            setTimeout(() => this.setupObserver(), 100);
+            return;
+        }
 
         this.observer = new MutationObserver((mutations) =>
         {
@@ -402,11 +433,15 @@ class FokusContentScript
     }
 }
 
-// Initialize content script
-const fokusContentScript = new FokusContentScript();
-
-// Cleanup on page unload
-window.addEventListener('unload', () =>
+// Initialize content script only on valid pages
+if (window.location.protocol !== 'chrome:' &&
+    window.location.protocol !== 'chrome-extension:')
 {
-    fokusContentScript.destroy();
-});
+    const fokusContentScript = new FokusContentScript();
+
+    // Cleanup on page unload
+    window.addEventListener('unload', () =>
+    {
+        fokusContentScript.destroy();
+    });
+}

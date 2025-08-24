@@ -1,15 +1,17 @@
+/**
+ * Background Service Worker for Fokus Extension
+ * Fixed version without module imports
+ */
+
+// Load configuration and utilities using importScripts
 importScripts('config.js');
-importScripts('utils/logger.js');
-importScripts('utils/storage.js');
-importScripts('utils/crypto.js');
-importScripts('services/blockingEngine.js');
 
 class BackgroundService
 {
     constructor()
     {
-        this.logger = typeof Logger !== 'undefined' ? new Logger('BackgroundService') : console;
-        this.storage = typeof StorageManager !== 'undefined' ? new StorageManager() : {
+        this.logger = console; // Simplified logger
+        this.storage = {
             get: async (key) =>
             {
                 const result = await chrome.storage.local.get(key);
@@ -24,10 +26,6 @@ class BackgroundService
             remove: (key) => chrome.storage.local.remove(key),
             clear: () => chrome.storage.local.clear()
         };
-        this.blockingEngine = null;
-        this.syncService = null;
-        this.analyticsService = null;
-        this.deviceManager = null;
         this.isInitialized = false;
         this.initializationPromise = null;
     }
@@ -50,24 +48,6 @@ class BackgroundService
         {
             this.logger.info('Initializing background service...');
 
-            // Load services if available
-            if (typeof BlockingEngine !== 'undefined')
-            {
-                this.blockingEngine = new BlockingEngine();
-            }
-            if (typeof SyncService !== 'undefined')
-            {
-                this.syncService = new SyncService();
-            }
-            if (typeof AnalyticsService !== 'undefined')
-            {
-                this.analyticsService = new AnalyticsService();
-            }
-            if (typeof DeviceManager !== 'undefined')
-            {
-                this.deviceManager = new DeviceManager();
-            }
-
             // Set up message listeners
             this.setupMessageListeners();
 
@@ -76,9 +56,6 @@ class BackgroundService
 
             // Set up web navigation listeners
             this.setupNavigationListeners();
-
-            // Set up auth state listener
-            this.setupAuthListener();
 
             // Check for existing session
             const session = await this.getSession();
@@ -138,7 +115,7 @@ class BackgroundService
     {
         const { type, payload } = request;
 
-        this.logger.debug('Handling message:', type);
+        this.logger.log('Handling message:', type);
 
         switch (type)
         {
@@ -182,18 +159,6 @@ class BackgroundService
             case 'SETTINGS_UPDATE':
                 return await this.updateSettings(payload);
 
-            // Sync
-            case 'SYNC_NOW':
-                return await this.syncNow();
-            case 'SYNC_STATUS':
-                return await this.getSyncStatus();
-
-            // Device management
-            case 'DEVICE_REGISTER':
-                return await this.registerDevice();
-            case 'DEVICE_GET_INFO':
-                return await this.getDeviceInfo();
-
             // Utility
             case 'CHECK_URL_BLOCKED':
                 return await this.checkUrlBlocked(payload.url);
@@ -218,25 +183,14 @@ class BackgroundService
     {
         try
         {
-            if (typeof window !== 'undefined' && window.supabaseClient)
-            {
-                const result = await window.supabaseClient.signIn(credentials.email, credentials.password);
-                if (result.success)
-                {
-                    await this.handleUserAuthenticated(result.data.session);
-                }
-                return result;
-            } else
-            {
-                // Fallback for testing without Supabase
-                const mockUser = {
-                    id: 'test-user',
-                    email: credentials.email,
-                    user_metadata: { subscription_tier: 'free' }
-                };
-                await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, mockUser);
-                return { success: true, data: { user: mockUser } };
-            }
+            // For now, use mock authentication
+            const mockUser = {
+                id: 'test-user',
+                email: credentials.email,
+                user_metadata: { subscription_tier: 'free' }
+            };
+            await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.USER, mockUser);
+            return { success: true, data: { user: mockUser } };
         } catch (error)
         {
             this.logger.error('Sign in error:', error);
@@ -251,22 +205,13 @@ class BackgroundService
     {
         try
         {
-            if (typeof window !== 'undefined' && window.supabaseClient)
-            {
-                const result = await window.supabaseClient.signUp(credentials.email, credentials.password);
-                if (result.success)
-                {
-                    this.sendNotification(
-                        'Welcome to Fokus!',
-                        'Please check your email to confirm your account.'
-                    );
+            // Mock sign up for testing
+            return {
+                success: true,
+                data: {
+                    user: { email: credentials.email }
                 }
-                return result;
-            } else
-            {
-                // Fallback for testing
-                return { success: true, data: { user: { email: credentials.email } } };
-            }
+            };
         } catch (error)
         {
             this.logger.error('Sign up error:', error);
@@ -281,18 +226,8 @@ class BackgroundService
     {
         try
         {
-            if (typeof window !== 'undefined' && window.supabaseClient)
-            {
-                await window.supabaseClient.signOut();
-            }
-
             // Clear all local data
             await this.storage.clear();
-
-            // Stop all services
-            if (this.syncService) this.syncService.stop();
-            if (this.analyticsService) this.analyticsService.stop();
-            if (this.blockingEngine) await this.blockingEngine.clearRules();
 
             // Update extension badge
             this.updateBadge('', '#666666');
@@ -312,10 +247,6 @@ class BackgroundService
     {
         try
         {
-            if (typeof window !== 'undefined' && window.supabaseClient)
-            {
-                return await window.supabaseClient.resetPassword(email);
-            }
             return { success: true, message: 'Password reset email sent' };
         } catch (error)
         {
@@ -331,18 +262,12 @@ class BackgroundService
     {
         try
         {
-            if (typeof window !== 'undefined' && window.supabaseClient)
-            {
-                return await window.supabaseClient.getSession();
-            }
-
             // Fallback to local storage
             const user = await this.storage.get(CONFIG.CACHE.STORAGE_KEYS.USER);
             if (user)
             {
                 return { user };
             }
-
             return null;
         } catch (error)
         {
@@ -360,28 +285,12 @@ class BackgroundService
         {
             this.logger.info('User authenticated, initializing services...');
 
-            // Register device
-            if (this.deviceManager)
-            {
-                await this.deviceManager.registerDevice();
-            }
-
-            // Sync user data
-            if (this.syncService)
-            {
-                await this.syncService.syncNow();
-            }
-
             // Load blocklist into blocking engine
             const blocklist = await this.getBlocklist();
-            if (blocklist && this.blockingEngine)
+            if (blocklist)
             {
-                await this.blockingEngine.updateRules(blocklist);
+                await this.applySimpleBlockingRules(blocklist);
             }
-
-            // Start services
-            if (this.syncService) this.syncService.start();
-            if (this.analyticsService) this.analyticsService.start();
 
             // Update extension badge
             this.updateBadge('ON', '#10B981');
@@ -390,26 +299,6 @@ class BackgroundService
         } catch (error)
         {
             this.logger.error('Failed to initialize services for user:', error);
-        }
-    }
-
-    /**
-     * Setup auth state listener
-     */
-    setupAuthListener()
-    {
-        if (typeof window !== 'undefined' && window.supabaseClient)
-        {
-            window.supabaseClient.onAuthStateChange(async (event, session) =>
-            {
-                if (event === 'SIGNED_IN' && session)
-                {
-                    await this.handleUserAuthenticated(session);
-                } else if (event === 'SIGNED_OUT')
-                {
-                    await this.handleSignOut();
-                }
-            });
         }
     }
 
@@ -423,10 +312,6 @@ class BackgroundService
             periodInMinutes: CONFIG.SYNC.INTERVAL / 60000
         });
 
-        chrome.alarms.create('analytics', {
-            periodInMinutes: CONFIG.ANALYTICS.BATCH_INTERVAL / 60000
-        });
-
         chrome.alarms.create('cleanup', {
             periodInMinutes: 60 // Clean up old data every hour
         });
@@ -434,18 +319,12 @@ class BackgroundService
         // Handle alarms
         chrome.alarms.onAlarm.addListener(async (alarm) =>
         {
-            this.logger.debug('Alarm triggered:', alarm.name);
+            this.logger.log('Alarm triggered:', alarm.name);
 
             switch (alarm.name)
             {
                 case 'sync':
-                    await this.syncNow();
-                    break;
-                case 'analytics':
-                    if (this.analyticsService)
-                    {
-                        await this.analyticsService.flush();
-                    }
+                    // Sync will be handled when backend is ready
                     break;
                 case 'cleanup':
                     await this.performCleanup();
@@ -467,16 +346,6 @@ class BackgroundService
 
             if (isBlocked)
             {
-                // Log block event
-                if (this.analyticsService)
-                {
-                    await this.analyticsService.logBlockEvent({
-                        url: details.url,
-                        blockType: isBlocked.type,
-                        blockSource: isBlocked.source
-                    });
-                }
-
                 // Redirect to blocked page
                 chrome.tabs.update(details.tabId, {
                     url: chrome.runtime.getURL('blocked.html') +
@@ -543,7 +412,7 @@ class BackgroundService
             {
                 // Open welcome page on first install
                 chrome.tabs.create({
-                    url: CONFIG.APP.WEBSITE_URL + '/welcome'
+                    url: 'https://fokus.app/welcome'
                 });
             } else if (details.reason === 'update')
             {
@@ -590,15 +459,8 @@ class BackgroundService
         {
             await this.storage.set(CONFIG.CACHE.STORAGE_KEYS.BLOCKLIST, updates);
 
-            // Update blocking engine if available
-            if (this.blockingEngine)
-            {
-                await this.blockingEngine.updateRules(updates);
-            } else
-            {
-                // Fallback to simple declarativeNetRequest rules
-                await this.applySimpleBlockingRules(updates);
-            }
+            // Apply blocking rules
+            await this.applySimpleBlockingRules(updates);
 
             return { success: true, data: updates };
         } catch (error)
@@ -609,7 +471,7 @@ class BackgroundService
     }
 
     /**
-     * Apply simple blocking rules without BlockingEngine
+     * Apply simple blocking rules
      */
     async applySimpleBlockingRules(blocklist)
     {
@@ -800,11 +662,6 @@ class BackgroundService
     {
         try
         {
-            if (this.blockingEngine)
-            {
-                return await this.blockingEngine.isUrlBlocked(url);
-            }
-
             // Fallback to simple check
             const blocklist = await this.getBlocklist();
             const urlObj = new URL(url);
@@ -849,11 +706,6 @@ class BackgroundService
      */
     async getStatistics(days = 7)
     {
-        if (this.analyticsService)
-        {
-            return await this.analyticsService.getSummary(days);
-        }
-
         // Fallback mock data
         return {
             totalBlocks: 42,
@@ -867,11 +719,6 @@ class BackgroundService
      */
     async getTodayStats()
     {
-        if (this.analyticsService)
-        {
-            return await this.analyticsService.getTodayStats();
-        }
-
         // Fallback mock data
         return {
             totalBlocks: 12,
@@ -953,59 +800,7 @@ class BackgroundService
      */
     async logBlockEvent(payload)
     {
-        if (this.analyticsService)
-        {
-            return await this.analyticsService.logBlockEvent(payload);
-        }
         return { success: true };
-    }
-
-    /**
-     * Sync now
-     */
-    async syncNow()
-    {
-        if (this.syncService)
-        {
-            return await this.syncService.syncNow();
-        }
-        return { success: true, message: 'Sync service not available' };
-    }
-
-    /**
-     * Get sync status
-     */
-    async getSyncStatus()
-    {
-        if (this.syncService)
-        {
-            return await this.syncService.getStatus();
-        }
-        return { isRunning: false, lastSyncTime: null };
-    }
-
-    /**
-     * Register device
-     */
-    async registerDevice()
-    {
-        if (this.deviceManager)
-        {
-            return await this.deviceManager.registerDevice();
-        }
-        return { success: true, message: 'Device manager not available' };
-    }
-
-    /**
-     * Get device info
-     */
-    async getDeviceInfo()
-    {
-        if (this.deviceManager)
-        {
-            return await this.deviceManager.getDeviceInfo();
-        }
-        return null;
     }
 
     /**
@@ -1051,12 +846,6 @@ class BackgroundService
                         await this.storage.remove(key);
                     }
                 }
-            }
-
-            // Clean up old analytics data
-            if (this.analyticsService)
-            {
-                await this.analyticsService.cleanup();
             }
 
             this.logger.info('Cleanup completed');

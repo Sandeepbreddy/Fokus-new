@@ -122,7 +122,7 @@ const CONFIG = {
     ERROR: {
         MAX_RETRIES: 3,
         REPORT_TO_SERVER: true,
-        LOG_LEVEL: process.env.NODE_ENV === 'production' ? 'error' : 'debug'
+        LOG_LEVEL: 'debug' // Changed from process.env.NODE_ENV check
     },
 
     // Rate Limiting
@@ -230,7 +230,31 @@ const MOTIVATIONAL_QUOTES = [
     }
 ];
 
-// Validate Configuration
+// Determine if we're in development mode (for Chrome extensions)
+function isDevelopment()
+{
+    // Check if extension is loaded unpacked (development mode)
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest)
+    {
+        const manifest = chrome.runtime.getManifest();
+        // In development, the extension ID changes and update_url is not present
+        return !manifest.update_url;
+    }
+    return false;
+}
+
+// Update log level based on environment
+if (isDevelopment())
+{
+    CONFIG.ERROR.LOG_LEVEL = 'debug';
+    CONFIG.DEV.DEBUG_MODE = true;
+} else
+{
+    CONFIG.ERROR.LOG_LEVEL = 'error';
+    CONFIG.DEV.DEBUG_MODE = false;
+}
+
+// Validate Configuration (optional, runs only in development)
 function validateConfig()
 {
     const errors = [];
@@ -280,4 +304,10 @@ function getCurrentConfig()
     }
 
     return CONFIG;
+}
+
+// Run validation in development
+if (isDevelopment())
+{
+    validateConfig();
 }
