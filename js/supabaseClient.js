@@ -1,6 +1,6 @@
 /**
- * Supabase Client Module - Universal (Works in both Service Worker and Window contexts)
- * Production-ready code that matches the exact database schema
+ * Supabase Client Module - Fixed Version
+ * Properly creates all related records on signup
  */
 
 (function (global)
@@ -219,18 +219,51 @@
             {
                 this.logger.info('Attempting to sign up user:', email);
 
+                // Prepare signup data
+                const signupData = {
+                    email,
+                    password
+                };
+
+                // Add redirect URL only if we're in a window context
+                if (this.isWindow && typeof window !== 'undefined')
+                {
+                    signupData.options = {
+                        emailRedirectTo: `${window.location.origin}/auth/callback`
+                    };
+                }
+
                 // Step 1: Create auth user
                 const authResponse = await this.makeRequest('/auth/v1/signup', {
                     method: 'POST',
-                    body: JSON.stringify({
-                        email,
-                        password
-                    })
+                    body: JSON.stringify(signupData)
                 });
 
-                this.logger.info('Auth user created');
+                this.logger.info('Auth user created', authResponse);
 
-                // Store session if we got one (auto-confirmed)
+                // Check if email confirmation is required
+                const requiresConfirmation = authResponse.user && !authResponse.access_token;
+
+                if (requiresConfirmation)
+                {
+                    this.logger.info('Email confirmation required for user:', email);
+
+                    // Store user data temporarily for after confirmation
+                    await this.storage.set('pending_user', {
+                        id: authResponse.user.id,
+                        email: authResponse.user.email,
+                        created_at: Date.now()
+                    });
+
+                    return {
+                        success: true,
+                        data: authResponse,
+                        requiresEmailConfirmation: true,
+                        message: 'Please check your email to confirm your account'
+                    };
+                }
+
+                // Auto-confirmed (email confirmation disabled)
                 if (authResponse.access_token)
                 {
                     this.session = authResponse;
@@ -238,21 +271,28 @@
                     await this.storage.set(this.getStorageKey('USER'), authResponse.user);
 
                     // Step 2: Create user record in users table
-                    await this.createUserRecord(authResponse.user);
+                    await this.createUserRecord(authResponse.user, authResponse.access_token);
 
                     // Step 3: Create default blocklist
-                    await this.createDefaultBlocklist(authResponse.user.id);
+                    await this.createDefaultBlocklist(authResponse.user.id, authResponse.access_token);
 
                     // Step 4: Register current device
-                    await this.registerCurrentDevice(authResponse.user.id);
+                    await this.registerCurrentDevice(authResponse.user.id, authResponse.access_token);
 
                     this.handleAuthStateChange('SIGNED_IN', this.session);
+
+                    return {
+                        success: true,
+                        data: authResponse,
+                        requiresEmailConfirmation: false
+                    };
                 }
 
+                // Shouldn't reach here, but handle gracefully
                 return {
                     success: true,
                     data: authResponse,
-                    requiresEmailConfirmation: !authResponse.access_token
+                    requiresEmailConfirmation: true
                 };
             } catch (error)
             {
@@ -267,7 +307,7 @@
         /**
          * Create user record in users table
          */
-        async createUserRecord(authUser)
+        async createUserRecord(authUser, accessToken)
         {
             try
             {
@@ -275,35 +315,49 @@
                     id: authUser.id,
                     email: authUser.email,
                     subscription_tier: 'free',
-                    device_limit: 1
+                    device_limit: 1,
+                    stripe_customer_id: null,
+                    subscription_end_date: null
                 };
 
-                await this.makeRequest('/rest/v1/users', {
+                this.logger.info('Creating user record with data:', userData);
+
+                const response = await fetch(`${this.supabaseUrl}/rest/v1/users`, {
                     method: 'POST',
-                    body: JSON.stringify(userData),
                     headers: {
+                        'apikey': this.supabaseKey,
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
                         'Prefer': 'return=representation'
-                    }
+                    },
+                    body: JSON.stringify(userData)
                 });
 
-                this.logger.info('User record created in users table');
+                const data = await response.json();
+
+                if (!response.ok)
+                {
+                    // Check if user already exists (this is okay, might happen on retry)
+                    if (data.message && data.message.includes('duplicate'))
+                    {
+                        this.logger.info('User record already exists');
+                        return;
+                    }
+                    throw new Error(data.message || 'Failed to create user record');
+                }
+
+                this.logger.info('User record created successfully:', data);
             } catch (error)
             {
-                // Check if user already exists
-                if (error.message.includes('duplicate'))
-                {
-                    this.logger.info('User record already exists');
-                } else
-                {
-                    this.logger.error('Failed to create user record:', error);
-                }
+                this.logger.error('Failed to create user record:', error);
+                // Don't throw - continue with the flow even if this fails
             }
         }
 
         /**
          * Create default blocklist for new user
          */
-        async createDefaultBlocklist(userId)
+        async createDefaultBlocklist(userId, accessToken)
         {
             try
             {
@@ -313,34 +367,48 @@
                     domains: [],
                     github_urls: [],
                     is_active: true,
-                    priority: 0
+                    priority: 0,
+                    notes: null
                 };
 
-                await this.makeRequest('/rest/v1/user_blocklists', {
+                this.logger.info('Creating default blocklist for user:', userId);
+
+                const response = await fetch(`${this.supabaseUrl}/rest/v1/user_blocklists`, {
                     method: 'POST',
-                    body: JSON.stringify(blocklist),
                     headers: {
+                        'apikey': this.supabaseKey,
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
                         'Prefer': 'return=representation'
-                    }
+                    },
+                    body: JSON.stringify(blocklist)
                 });
 
-                this.logger.info('Default blocklist created');
+                const data = await response.json();
+
+                if (!response.ok)
+                {
+                    // Check if blocklist already exists
+                    if (data.message && data.message.includes('duplicate'))
+                    {
+                        this.logger.info('Blocklist already exists');
+                        return;
+                    }
+                    throw new Error(data.message || 'Failed to create blocklist');
+                }
+
+                this.logger.info('Default blocklist created:', data);
             } catch (error)
             {
-                if (error.message.includes('duplicate'))
-                {
-                    this.logger.info('Blocklist already exists');
-                } else
-                {
-                    this.logger.error('Failed to create blocklist:', error);
-                }
+                this.logger.error('Failed to create blocklist:', error);
+                // Don't throw - continue with the flow
             }
         }
 
         /**
          * Register current device
          */
-        async registerCurrentDevice(userId)
+        async registerCurrentDevice(userId, accessToken)
         {
             try
             {
@@ -357,36 +425,88 @@
                     user_id: userId,
                     device_uuid: deviceUuid,
                     browser_name: deviceInfo.browserName,
-                    browser_version: deviceInfo.browserVersion,
+                    browser_version: deviceInfo.browserVersion || 'Unknown',
                     operating_system: deviceInfo.os,
                     device_name: `${deviceInfo.browserName} on ${deviceInfo.os}`,
-                    is_active: true
+                    is_active: true,
+                    last_activity: new Date().toISOString()
                 };
 
-                const response = await this.makeRequest('/rest/v1/devices', {
+                this.logger.info('Registering device with data:', deviceData);
+
+                const response = await fetch(`${this.supabaseUrl}/rest/v1/devices`, {
                     method: 'POST',
-                    body: JSON.stringify(deviceData),
                     headers: {
+                        'apikey': this.supabaseKey,
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
                         'Prefer': 'return=representation'
-                    }
+                    },
+                    body: JSON.stringify(deviceData)
                 });
 
-                if (response && response.length > 0)
+                const data = await response.json();
+
+                if (!response.ok)
                 {
-                    this.currentDevice = response[0];
+                    // Check if device already exists
+                    if (data.message && data.message.includes('duplicate'))
+                    {
+                        this.logger.info('Device already exists, updating it');
+                        // Try to update the existing device
+                        await this.updateExistingDevice(userId, deviceUuid, accessToken);
+                        return;
+                    }
+                    throw new Error(data.message || 'Failed to register device');
+                }
+
+                if (data && data.length > 0)
+                {
+                    this.currentDevice = data[0];
                     await this.storage.set('current_device', this.currentDevice);
-                    this.logger.info('Device registered successfully');
+                    this.logger.info('Device registered successfully:', data[0]);
                 }
             } catch (error)
             {
-                if (error.message.includes('duplicate'))
+                this.logger.error('Failed to register device:', error);
+                // Don't throw - device registration is not critical for signup
+            }
+        }
+
+        /**
+         * Update existing device
+         */
+        async updateExistingDevice(userId, deviceUuid, accessToken)
+        {
+            try
+            {
+                const response = await fetch(
+                    `${this.supabaseUrl}/rest/v1/devices?user_id=eq.${userId}&device_uuid=eq.${deviceUuid}`,
+                    {
+                        method: 'PATCH',
+                        headers: {
+                            'apikey': this.supabaseKey,
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'return=representation'
+                        },
+                        body: JSON.stringify({
+                            is_active: true,
+                            last_activity: new Date().toISOString()
+                        })
+                    }
+                );
+
+                const data = await response.json();
+                if (data && data.length > 0)
                 {
-                    // Device already exists, try to fetch it
-                    await this.loadCurrentDevice();
-                } else
-                {
-                    this.logger.error('Failed to register device:', error);
+                    this.currentDevice = data[0];
+                    await this.storage.set('current_device', this.currentDevice);
+                    this.logger.info('Device updated successfully');
                 }
+            } catch (error)
+            {
+                this.logger.error('Failed to update device:', error);
             }
         }
 
@@ -504,8 +624,8 @@
                 await this.storage.set(this.getStorageKey('AUTH'), response);
                 await this.storage.set(this.getStorageKey('USER'), response.user);
 
-                // Register/update device
-                await this.registerCurrentDevice(response.user.id);
+                // Make sure all related records exist
+                await this.ensureUserRecordsExist(response.user, response.access_token);
 
                 this.handleAuthStateChange('SIGNED_IN', this.session);
 
@@ -516,10 +636,79 @@
             } catch (error)
             {
                 this.logger.error('Sign in error:', error);
+
+                // Check if it's an email confirmation error
+                if (error.message && error.message.includes('Email not confirmed'))
+                {
+                    return {
+                        success: false,
+                        error: 'Please check your email and confirm your account before signing in',
+                        needsEmailConfirmation: true
+                    };
+                }
+
                 return {
                     success: false,
                     error: this.formatError(error)
                 };
+            }
+        }
+
+        /**
+         * Ensure all user-related records exist
+         */
+        async ensureUserRecordsExist(user, accessToken)
+        {
+            try
+            {
+                // Check if user record exists in users table
+                const userResponse = await fetch(
+                    `${this.supabaseUrl}/rest/v1/users?id=eq.${user.id}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': this.supabaseKey,
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                const userData = await userResponse.json();
+
+                if (!userData || userData.length === 0)
+                {
+                    // Create user record
+                    await this.createUserRecord(user, accessToken);
+                }
+
+                // Check if blocklist exists
+                const blocklistResponse = await fetch(
+                    `${this.supabaseUrl}/rest/v1/user_blocklists?user_id=eq.${user.id}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'apikey': this.supabaseKey,
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                const blocklistData = await blocklistResponse.json();
+
+                if (!blocklistData || blocklistData.length === 0)
+                {
+                    // Create default blocklist
+                    await this.createDefaultBlocklist(user.id, accessToken);
+                }
+
+                // Register/update device
+                await this.registerCurrentDevice(user.id, accessToken);
+
+            } catch (error)
+            {
+                this.logger.error('Error ensuring user records exist:', error);
             }
         }
 
@@ -556,6 +745,88 @@
             } catch (error)
             {
                 this.logger.error('Sign out error:', error);
+                return {
+                    success: false,
+                    error: this.formatError(error)
+                };
+            }
+        }
+
+        /**
+         * Handle email confirmation callback
+         */
+        async handleEmailConfirmation(accessToken, refreshToken)
+        {
+            try
+            {
+                this.logger.info('Handling email confirmation');
+
+                // Exchange tokens for session
+                const response = await this.makeRequest('/auth/v1/user', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response)
+                {
+                    // Create session object
+                    this.session = {
+                        access_token: accessToken,
+                        refresh_token: refreshToken,
+                        user: response,
+                        expires_at: Math.floor(Date.now() / 1000) + 3600 // 1 hour
+                    };
+
+                    // Store session
+                    await this.storage.set(this.getStorageKey('AUTH'), this.session);
+                    await this.storage.set(this.getStorageKey('USER'), response);
+
+                    // Create user records
+                    await this.ensureUserRecordsExist(response, accessToken);
+
+                    this.handleAuthStateChange('SIGNED_IN', this.session);
+
+                    return {
+                        success: true,
+                        data: this.session
+                    };
+                }
+
+                throw new Error('Failed to get user after email confirmation');
+            } catch (error)
+            {
+                this.logger.error('Email confirmation error:', error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+
+        /**
+         * Resend confirmation email
+         */
+        async resendConfirmationEmail(email)
+        {
+            try
+            {
+                await this.makeRequest('/auth/v1/resend', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        type: 'signup',
+                        email: email
+                    })
+                });
+
+                return {
+                    success: true,
+                    message: 'Confirmation email sent'
+                };
+            } catch (error)
+            {
+                this.logger.error('Resend confirmation error:', error);
                 return {
                     success: false,
                     error: this.formatError(error)
@@ -669,7 +940,11 @@
                 if (!blocklist)
                 {
                     // Create default blocklist if none exists
-                    await this.createDefaultBlocklist(user.id);
+                    const session = await this.getSession();
+                    if (session)
+                    {
+                        await this.createDefaultBlocklist(user.id, session.access_token);
+                    }
                     blocklist = {
                         keywords: [],
                         domains: [],
@@ -721,7 +996,7 @@
                     updated_at: new Date().toISOString()
                 };
 
-                // Update existing blocklist (we know it exists due to unique constraint)
+                // Update existing blocklist
                 const response = await this.makeRequest(
                     `/rest/v1/user_blocklists?user_id=eq.${user.id}`,
                     {
@@ -1093,7 +1368,9 @@
                 'Password should be at least 6 characters': 'Password must be at least 6 characters',
                 'Invalid email': 'Please enter a valid email address',
                 'Email rate limit exceeded': 'Too many attempts. Please try again later.',
-                'Invalid Refresh Token': 'Your session has expired. Please sign in again.'
+                'Invalid Refresh Token': 'Your session has expired. Please sign in again.',
+                'Email link is invalid or has expired': 'The confirmation link has expired. Please request a new one.',
+                'Token has expired or is invalid': 'Your session has expired. Please sign in again.'
             };
 
             for (const [key, value] of Object.entries(errorMessages))
@@ -1120,7 +1397,11 @@
                     return { success: false, error: 'Not authenticated' };
                 }
 
-                await this.registerCurrentDevice(user.id);
+                const session = await this.getSession();
+                if (session)
+                {
+                    await this.registerCurrentDevice(user.id, session.access_token);
+                }
                 return { success: true, data: this.currentDevice };
             } catch (error)
             {
